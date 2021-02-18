@@ -3762,7 +3762,7 @@ void triggerSetEndTeeth_420a()
 Name: Weber-Marelli
 Desc: 2 wheels, 4 teeth 90deg apart on crank and 2 90deg apart on cam.
 Note: It use DualWheel decoders, There can be no missing teeth on the primary wheel
-
+*/
 void triggerPri_Webber()
 {
   curTime = micros();
@@ -3864,13 +3864,29 @@ void triggerSec_Webber()
     checkSyncToothCount = 1; //Reset tooth counter
   } //Trigger filter
 }
+
+
+
+/*Name: Suzuki DRZ400
+Desc: 2 wheels, 6 teeth 30deg apart on crank and 2 10deg apart on cam.
+Note: It use DualCrankWheel decoders(modified dual wheel decoders), There can be no missing teeth on the primary wheel
 */
 
-/*Name: DRZ400
-Desc: 2 wheels, 6 teeth 30deg apart on crank and 2 10deg apart on cam.
-Note: It use DualWheel decoders, There can be no missing teeth on the primary wheel
-*/
-void triggerPri_Webber()
+void triggerSetup_DualCrankWheel()
+{
+  triggerToothAngle = 360 / configPage4.triggerTeeth; //The number of degrees that passes from tooth to tooth
+  if(configPage4.TrigSpeed == 1) { triggerToothAngle = 360 / configPage4.triggerTeeth; } //Account for cam speed
+  toothCurrentCount = 255; //Default value
+  triggerFilterTime = (1000000 / (MAX_RPM / 60 * configPage4.triggerTeeth)); //Trigger filter time is the shortest possible time (in uS) that there can be between crank teeth (ie at max RPM). Any pulses that occur faster than this time will be disgarded as noise
+  triggerSecFilterTime = (1000000 / (MAX_RPM / 60 * 2)); //Same as above, but fixed at 2 teeth on the secondary input 
+  secondDerivEnabled = false;
+  decoderIsSequential = false;
+  triggerToothAngleIsCorrect = true; //This is always true for this pattern
+  MAX_STALL_TIME = (3333UL * triggerToothAngle); //Minimum 50rpm. (3333uS is the time per degree at 50rpm)
+}
+
+
+void triggerPri_DRZ()
 {
   curTime = micros();
   curGap = curTime - toothLastToothTime;
@@ -3921,7 +3937,7 @@ void triggerPri_Webber()
   } //Trigger filter
 }
 
-void triggerSec_Webber()
+void triggerSec_DRZ()
 {
   curTime2 = micros();
   curGap2 = curTime2 - toothLastSecToothTime;
@@ -3972,6 +3988,111 @@ void triggerSec_Webber()
   } //Trigger filter
 }
 
+uint16_t getRPM_DualWheel()
+{
+  uint16_t tempRPM = 0;
+  if( currentStatus.hasSync == true )
+  {
+    if(currentStatus.RPM < currentStatus.crankRPM) { tempRPM = crankingGetRPM(configPage4.triggerTeeth); }
+    else { tempRPM = stdGetRPM(360); }
+  }
+  return tempRPM;
+}
+
+int getCrankAngle_DualCrankWheel()
+{
+    //This is the current angle ATDC the engine is at. This is the last known position based on what tooth was last 'seen'. It is only accurate to the resolution of the trigger wheel (Eg 36-1 is 10 degrees)
+    unsigned long tempToothLastToothTime;
+    int tempToothCurrentCount;
+    bool tempRevolutionOne;
+    //Grab some variables that are used in the trigger code and assign them to temp variables.
+    noInterrupts();
+    tempToothCurrentCount = toothCurrentCount;
+    tempToothLastToothTime = toothLastToothTime;
+    tempRevolutionOne = revolutionOne;
+    lastCrankAngleCalc = micros();
+    interrupts();
+
+    //Handle case where the secondary tooth was the last one seen
+    if(tempToothCurrentCount == 0) { tempToothCurrentCount = configPage4.triggerTeeth; }
+
+    int crankAngle = ((tempToothCurrentCount - 1) * triggerToothAngle) + configPage4.triggerAngle; //Number of teeth that have passed since tooth 1, multiplied by the angle each tooth represents, plus the angle that tooth 1 is ATDC. This gives accuracy only to the nearest tooth.
+
+    elapsedTime = (lastCrankAngleCalc - tempToothLastToothTime);
+    crankAngle += timeToAngle(elapsedTime, CRANKMATH_METHOD_INTERVAL_REV);
+
+    //Sequential check (simply sets whether we're on the first or 2nd revoltuion of the cycle)
+    if (tempRevolutionOne) { crankAngle += 360; }
+
+    if (crankAngle >= 360) { crankAngle -= 360; }
+    if (crankAngle > CRANK_ANGLE_MAX) { crankAngle -= CRANK_ANGLE_MAX; }
+    if (crankAngle < 0) { crankAngle += CRANK_ANGLE_MAX; }
+
+    return crankAngle;
+}
+
+void triggerSetEndTeeth_DualCrankWheel()
+{
+  //The toothAdder variable is used for when a setup is running sequentially, but the primary wheel is running at crank speed. This way the count of teeth will go up to 2* the number of primary teeth to allow for a sequential count. 
+  byte toothAdder = 0;
+  if( (configPage4.sparkMode == IGN_MODE_SEQUENTIAL) && (configPage4.TrigSpeed == CRANK_SPEED) ) { toothAdder = configPage4.triggerTeeth; }
+
+  int16_t tempIgnition1EndTooth;
+  tempIgnition1EndTooth = ( (ignition1EndAngle - configPage4.triggerAngle) / (int16_t)(triggerToothAngle) );
+  if(tempIgnition1EndTooth > (configPage4.triggerTeeth + toothAdder)) { tempIgnition1EndTooth -= (configPage4.triggerTeeth + toothAdder); }
+  if(tempIgnition1EndTooth <= 0) { tempIgnition1EndTooth += (configPage4.triggerTeeth + toothAdder); }
+  ignition1EndTooth = tempIgnition1EndTooth;
+
+  int16_t tempIgnition2EndTooth;
+  tempIgnition2EndTooth = ( (ignition2EndAngle - configPage4.triggerAngle) / (int16_t)(triggerToothAngle) );
+  if(tempIgnition2EndTooth > (configPage4.triggerTeeth + toothAdder)) { tempIgnition2EndTooth -= (configPage4.triggerTeeth + toothAdder); }
+  if(tempIgnition2EndTooth <= 0) { tempIgnition2EndTooth += (configPage4.triggerTeeth + toothAdder); }
+  ignition2EndTooth = tempIgnition2EndTooth;
+
+  int16_t tempIgnition3EndTooth;
+  tempIgnition3EndTooth = ( (ignition3EndAngle - configPage4.triggerAngle) / (int16_t)(triggerToothAngle) );
+  if(tempIgnition3EndTooth > (configPage4.triggerTeeth + toothAdder)) { tempIgnition3EndTooth -= (configPage4.triggerTeeth + toothAdder); }
+  if(tempIgnition3EndTooth <= 0) { tempIgnition3EndTooth += (configPage4.triggerTeeth + toothAdder); }
+  ignition3EndTooth = tempIgnition3EndTooth;
+
+  int16_t tempIgnition4EndTooth;
+  tempIgnition4EndTooth = ( (ignition4EndAngle - configPage4.triggerAngle) / (int16_t)(triggerToothAngle) );
+  if(tempIgnition4EndTooth > (configPage4.triggerTeeth + toothAdder)) { tempIgnition4EndTooth -= (configPage4.triggerTeeth + toothAdder); }
+  if(tempIgnition4EndTooth <= 0) { tempIgnition4EndTooth += (configPage4.triggerTeeth + toothAdder); }
+  ignition4EndTooth = tempIgnition4EndTooth;
+
+#if IGN_CHANNELS >= 5
+  int16_t tempIgnition5EndTooth;
+  tempIgnition5EndTooth = ( (ignition5EndAngle - configPage4.triggerAngle) / (int16_t)(triggerToothAngle) );
+  if(tempIgnition5EndTooth > (configPage4.triggerTeeth + toothAdder)) { tempIgnition5EndTooth -= (configPage4.triggerTeeth + toothAdder); }
+  if(tempIgnition5EndTooth <= 0) { tempIgnition5EndTooth += (configPage4.triggerTeeth + toothAdder); }
+  ignition5EndTooth = tempIgnition5EndTooth;
+#endif
+#if IGN_CHANNELS >= 6
+  int16_t tempIgnition6EndTooth;
+  tempIgnition6EndTooth = ( (ignition6EndAngle - configPage4.triggerAngle) / (int16_t)(triggerToothAngle) );
+  if(tempIgnition6EndTooth > (configPage4.triggerTeeth + toothAdder)) { tempIgnition6EndTooth -= (configPage4.triggerTeeth + toothAdder); }
+  if(tempIgnition6EndTooth <= 0) { tempIgnition6EndTooth += (configPage4.triggerTeeth + toothAdder); }
+  ignition6EndTooth = tempIgnition6EndTooth;
+#endif
+#if IGN_CHANNELS >= 7
+  int16_t tempIgnition7EndTooth;
+  tempIgnition7EndTooth = ( (ignition7EndAngle - configPage4.triggerAngle) / (int16_t)(triggerToothAngle) );
+  if(tempIgnition7EndTooth > (configPage4.triggerTeeth + toothAdder)) { tempIgnition7EndTooth -= (configPage4.triggerTeeth + toothAdder); }
+  if(tempIgnition7EndTooth <= 0) { tempIgnition7EndTooth += (configPage4.triggerTeeth + toothAdder); }
+  ignition7EndTooth = tempIgnition7EndTooth;
+#endif
+#if IGN_CHANNELS >= 8
+  int16_t tempIgnition8EndTooth;
+  tempIgnition8EndTooth = ( (ignition8EndAngle - configPage4.triggerAngle) / (int16_t)(triggerToothAngle) );
+  if(tempIgnition8EndTooth > (configPage4.triggerTeeth + toothAdder)) { tempIgnition8EndTooth -= (configPage4.triggerTeeth + toothAdder); }
+  if(tempIgnition8EndTooth <= 0) { tempIgnition8EndTooth += (configPage4.triggerTeeth + toothAdder); }
+  ignition8EndTooth = tempIgnition8EndTooth;
+#endif
+
+  lastToothCalcAdvance = currentStatus.advance;
+
+}
 
 
 

@@ -3032,6 +3032,28 @@ void initialiseTriggers()
       attachInterrupt(triggerInterrupt, triggerHandler, primaryTriggerEdge);
       attachInterrupt(triggerInterrupt2, triggerSecondaryHandler, secondaryTriggerEdge);
       break;
+    
+
+    case DECODER_SUZUKI_DRZ400:
+          //SUZUKI DRZ 400 
+        triggerSetup_DualCrankWheel();
+        triggerHandler = triggerPri_DRZ;
+        triggerSecondaryHandler = triggerSec_DRZ;
+        decoderHasSecondary = true;
+        getRPM = getRPM_DualCrankWheel;
+        getCrankAngle = getCrankAngle_DualCrankWheel;
+        triggerSetEndTeeth = triggerSetEndTeeth_DualCrankWheel;
+
+        if(configPage4.TrigEdge == 0) { primaryTriggerEdge = RISING; } // Attach the crank trigger wheel interrupt (Hall sensor drags to ground when triggering)
+        else { primaryTriggerEdge = FALLING; }
+        if(configPage4.TrigEdgeSec == 0) { secondaryTriggerEdge = RISING; }
+        else { secondaryTriggerEdge = FALLING; }
+
+        attachInterrupt(triggerInterrupt, triggerHandler, primaryTriggerEdge);
+        attachInterrupt(triggerInterrupt2, triggerSecondaryHandler, secondaryTriggerEdge);
+      break;
+
+
 
     case DECODER_ST170:
       //Ford ST170

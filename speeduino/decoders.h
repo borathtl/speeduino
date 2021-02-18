@@ -32,6 +32,7 @@
 #define DECODER_420A              18
 #define DECODER_WEBER             19
 #define DECODER_ST170             20
+#define DECODER_SUZUKI_DRZ400     21
 
 static inline void addToothLogEntry(unsigned long, bool);
 void loggerPrimaryISR();
@@ -178,6 +179,14 @@ void triggerSetEndTeeth_420a();
 
 void triggerPri_Webber();
 void triggerSec_Webber();
+
+void triggerSetup_DualCrankWheel();
+void triggerPri_DRZ();
+void triggerSec_DRZ();
+uint16_t getRPM_DualCrankWheel();
+int getCrankAngle_DualCrankWheel();
+void triggerSetEndTeeth_DualCrankWheel(); 
+
 
 void triggerSetup_FordST170();
 void triggerSec_FordST170();
